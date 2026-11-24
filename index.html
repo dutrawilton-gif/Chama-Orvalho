@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chama & Orvalho: 3 Níveis</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #0f0c20;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #fff;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        #hud {
+            position: absolute;
+            top: 15px; left: 20px; right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 5;
+        }
+        canvas { background: linear-gradient(to bottom, #1a1528, #0a0812); display: block; }
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 8, 18, 0.9);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 10;
+        }
+        #overlay.hidden { display: none; }
+        #overlay-title { font-size: 42px; margin-bottom: 10px; }
+        #overlay-msg { font-size: 20px; margin-bottom: 25px; color: #ccc; }
+        #action-btn {
+            padding: 12px 30px; font-size: 18px; font-weight: bold; color: #fff;
+            background: linear-gradient(45deg, #ff4500, #ff8c00);
+            border: none; border-radius: 30px; cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 69, 0, 0.4); transition: transform 0.2s;
+        }
+        #action-btn:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- HUD -->
+        <div id="hud">
+            <div>Vidas: <span id="lives">❤️❤️❤️</span></div>
+            <div>Nível: <span id="level-display">1</span> | Gemas: <span id="score">0</span> / <span id="total-gems">0</span></div>
+        </div>
+        <canvas id="gameCanvas" width="900" height="500"></canvas>
+        <!-- Overlay -->
+        <div id="overlay" class="hidden">
+            <h1 id="overlay-title">Mensagem</h1>
+            <p id="overlay-msg">Detalhes</p>
+            <button id="action-btn">Ação</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const hudLives = document.getElementById('lives');
+        const hudScore = document.getElementById('score');
+        const hudTotalGems = document.getElementById('total-gems');
+        const hudLevel = document.getElementById('level-display');
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlay-title');
+        const overlayMsg = document.getElementById('overlay-msg');
+        const actionBtn = document.getElementById('action-btn');
+
+        const keys = {};
+        window.addEventListener('keydown', e => { keys[e.code] = true; });
+        window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+        const player = {
+            x: 50, y: 0, width: 28, height: 38,
+            vx: 0, vy: 0, speed: 4.5, jumpForce: -11.5, gravity: 0.5, maxFallSpeed: 12,
+            grounded: false, lives: 3, invulnerableTimer: 0
+        };
+
+        const levels = [
+            { // Nível 1
+                start: { x: 50, y: 380 },
+                portal: { x: 800, y: 115, w: 40, h: 65 },
+                platforms: [
+                    { x: 0, y: 460, w: 900, h: 40 },
+                    { x: 150, y: 360, w: 120, h: 16 },
+                    { x: 320, y: 280, w: 120, h: 16 },
+                    { x: 520, y: 360, w: 120, h: 16 },
+                    { x: 700, y: 180, w: 180, h: 16 }
+                ],
+                hazards: [ { x: 300, y: 450, w: 150, h: 10 } ],
+                enemies: [],
+                coins: [{ x: 210, y: 320 }, { x: 380, y: 240 }, { x: 580, y: 320 }, { x: 790, y: 140 }]
+            },
+            { // Nível 2
+                start: { x: 30, y: 100 },
+                portal: { x: 820, y: 395, w: 40, h: 65 },
+                platforms: [
+                    { x: 0, y: 460, w: 900, h: 40 },
+                    { x: 0, y: 200, w: 120, h: 16 },
+                    { x: 180, y: 280, w: 120, h: 16 },
+                    { x: 360, y: 180, w: 150, h: 16 },
+                    { x: 600, y: 260, w: 120, h: 16 }
+                ],
+                hazards: [ { x: 200, y: 450, w: 500, h: 10 } ],
+                enemies: [{ x: 370, y: 156, w: 24, h: 24, vx: 1.5, minX: 360, maxX: 510 }],
+                coins: [{ x: 60, y: 160 }, { x: 240, y: 240 }, { x: 435, y: 140 }, { x: 660, y: 220 }, { x: 840, y: 350 }]
+            },
+            { // Nível 3
+                start: { x: 50, y: 380 },
+                portal: { x: 50, y: 50, w: 40, h: 65 },
+                platforms: [
+                    { x: 0, y: 460, w: 900, h: 40 },
+                    { x: 150, y: 380, w: 80, h: 16 },
+                    { x: 300, y: 320, w: 80, h: 16 },
+                    { x: 450, y: 260, w: 80, h: 16 },
+                    { x: 650, y: 200, w: 120, h: 16 },
+                    { x: 400, y: 120, w: 150, h: 16 },
+                    { x: 30, y: 115, w: 120, h: 16 }
+                ],
+                hazards: [ { x: 200, y: 450, w: 700, h: 10 } ],
+                enemies: [
+                    { x: 650, y: 176, w: 24, h: 24, vx: 2, minX: 650, maxX: 770 },
+                    { x: 400, y: 96, w: 24, h: 24, vx: 2.5, minX: 400, maxX: 550 }
+                ],
+                coins: [{ x: 190, y: 340 }, { x: 340, y: 280 }, { x: 490, y: 220 }, { x: 710, y: 160 }, { x: 475, y: 80 }, { x: 70, y: 75 }]
+            }
+        ];
+
+        let currentLevelIndex = 0;
+        let gameState = 'playing';
+        let score = 0;
+        let currentCoins = [];
+        let currentEnemies = [];
+
+        function loadLevel(index) {
+            if (index >= levels.length) {
+                showOverlay("ZEREI O JOGO!", "Você dominou o Templo Elemental!", "Jogar do Início", () => {
+                    currentLevelIndex = 0;
+                    loadLevel(0);
+                }, "#FFD700");
+                return;
+            }
+            
+            let lvl = levels[index];
+            player.x = lvl.start.x;
+            player.y = lvl.start.y;
+            player.vx = 0;
+            player.vy = 0;
+            
+            // ⭐ AQUI ESTÁ A MUDANÇA: Regenera as vidas ao carregar o nível!
+            player.lives = 3;
+            
+            score = 0;
+            currentCoins = lvl.coins.map(c => ({ x: c.x, y: c.y, r: 9, collected: false }));
+            currentEnemies = lvl.enemies.map(e => ({ ...e }));
+            
+            hudLevel.textContent = index + 1;
+            hudTotalGems.textContent = currentCoins.length;
+            
+            gameState = 'playing';
+            updateHUD();
+            overlay.classList.add('hidden');
+        }
+
+        function updateHUD() {
+            hudLives.textContent = '❤️'.repeat(Math.max(0, player.lives));
+            hudScore.textContent = score;
+        }
+
+        function showOverlay(title, msg, btnText, action, color) {
+            gameState = 'menu';
+            overlayTitle.textContent = title;
+            overlayTitle.style.color = color || "#fff";
+            overlayMsg.textContent = msg;
+            actionBtn.textContent = btnText;
+            actionBtn.onclick = action;
+            overlay.classList.remove('hidden');
+        }
+
+        function takeDamage(instant) {
+            if (instant) player.lives = 0;
+            else {
+                player.lives--;
+                player.invulnerableTimer = 60;
+                player.vy = -7;
+            }
+            updateHUD();
+
+            if (player.lives <= 0) {
+                showOverlay("FIM DE JOGO", "O fogo se apagou...", "Tentar Novamente", () => {
+                    loadLevel(currentLevelIndex);
+                }, "#FF4444");
+            }
+        }
+
+        function isColliding(a, b) {
+            return a.x < b.x + b.w && a.x + a.width > b.x && a.y < b.y + b.h && a.y + a.height > b.y;
+        }
+
+        function update() {
+            if (gameState !== 'playing') return;
+
+            let lvl = levels[currentLevelIndex];
+
+            // Pulo
+            if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.grounded) {
+                player.vy = player.jumpForce;
+                player.grounded = false;
+            }
+
+            // --- FÍSICA X ---
+            if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -player.speed;
+            else if (keys['ArrowRight'] || keys['KeyD']) player.vx = player.speed;
+            else player.vx = 0;
+
+            player.x += player.vx;
+            
+            // Limites Laterais da Tela
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+
+            // Colisão X
+            for (let p of lvl.platforms) {
+                if (isColliding(player, p)) {
+                    if (player.vx > 0) player.x = p.x - player.width;
+                    else if (player.vx < 0) player.x = p.x + p.w;
+                    player.vx = 0;
+                }
+            }
+
+            // --- FÍSICA Y ---
+            player.vy += player.gravity;
+            if (player.vy > player.maxFallSpeed) player.vy = player.maxFallSpeed;
+            player.y += player.vy;
+
+            player.grounded = false;
+            // Colisão Y
+            for (let p of lvl.platforms) {
+                if (isColliding(player, p)) {
+                    if (player.vy > 0) { // Caindo
+                        player.y = p.y - player.height;
+                        player.vy = 0;
+                        player.grounded = true;
+                    } else if (player.vy < 0) { // Subindo (bateu a cabeça)
+                        player.y = p.y + p.h;
+                        player.vy = 0;
+                    }
+                }
+            }
+
+            // Caiu no abismo (Fora da tela)
+            if (player.y > canvas.height) {
+                takeDamage(true);
+            }
+
+            // --- Dano e Interações ---
+            for (let haz of lvl.hazards) {
+                if (isColliding(player, haz)) takeDamage(true);
+            }
+
+            if (player.invulnerableTimer > 0) player.invulnerableTimer--;
+
+            for (let e of currentEnemies) {
+                e.x += e.vx;
+                if (e.x <= e.minX || e.x + e.w >= e.maxX) e.vx *= -1;
+
+                if (player.invulnerableTimer === 0 && isColliding(player, e)) {
+                    takeDamage(false);
+                }
+            }
+
+            // Gemas
+            for (let c of currentCoins) {
+                if (!c.collected) {
+                    let dx = (player.x + player.width/2) - c.x;
+                    let dy = (player.y + player.height/2) - c.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < c.r + player.width/2) {
+                        c.collected = true;
+                        score++;
+                        updateHUD();
+                    }
+                }
+            }
+
+            // Portal
+            if (isColliding(player, lvl.portal)) {
+                if (score === currentCoins.length) {
+                    showOverlay("NÍVEL CONCLUÍDO!", "Muito bem, siga para a próxima área.", "Próximo Nível", () => {
+                        currentLevelIndex++;
+                        loadLevel(currentLevelIndex);
+                    }, "#4CAF50");
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if(gameState !== 'playing' && gameState !== 'menu') return;
+
+            let lvl = levels[currentLevelIndex];
+
+            for (let haz of lvl.hazards) {
+                ctx.fillStyle = '#00bfff'; ctx.fillRect(haz.x, haz.y, haz.w, haz.h);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'; ctx.fillRect(haz.x, haz.y, haz.w, 3);
+            }
+
+            for (let p of lvl.platforms) {
+                ctx.fillStyle = '#3a344d'; ctx.fillRect(p.x, p.y, p.w, p.h);
+                ctx.fillStyle = '#5c5478'; ctx.fillRect(p.x, p.y, p.w, 4);
+            }
+
+            for (let c of currentCoins) {
+                if (!c.collected) {
+                    ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffcc00'; ctx.shadowBlur = 10; ctx.shadowColor = '#ff4500';
+                    ctx.fill(); ctx.shadowBlur = 0;
+                }
+            }
+
+            let allCollected = (score === currentCoins.length);
+            ctx.fillStyle = allCollected ? '#9d4edd' : '#4a3b5c';
+            ctx.shadowBlur = allCollected ? 15 : 0; ctx.shadowColor = '#c77dff';
+            ctx.fillRect(lvl.portal.x, lvl.portal.y, lvl.portal.w, lvl.portal.h);
+            ctx.shadowBlur = 0;
+
+            ctx.fillStyle = '#a2d2ff';
+            for (let e of currentEnemies) {
+                ctx.fillRect(e.x, e.y, e.w, e.h);
+                ctx.fillStyle = '#ffffff'; ctx.fillRect(e.x + 4, e.y + 4, 5, 5); ctx.fillRect(e.x + 15, e.y + 4, 5, 5);
+                ctx.fillStyle = '#a2d2ff';
+            }
+
+            if (player.invulnerableTimer % 6 < 3) {
+                ctx.fillStyle = '#ff4500'; ctx.shadowBlur = 12; ctx.shadowColor = '#ff8c00';
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+                ctx.fillStyle = '#ffffff'; ctx.fillRect(player.x + (player.vx < 0 ? 4 : 14), player.y + 8, 6, 8);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Inicia o jogo
+        loadLevel(0);
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
